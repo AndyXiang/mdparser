@@ -1,8 +1,8 @@
 #![allow(unused)]
 
-use markdown_parser::ast::*;
-use markdown_parser::html::to_html;
-use markdown_parser::tokenize::*;
+use mdparser::ast::*;
+// use mdparser::html::to_html;
+use mdparser::lexer::*;
 use std::fs;
 
 fn main() {
@@ -10,7 +10,7 @@ fn main() {
 
     let tokens = to_tokens(contents);
     let ast = to_ast(tokens);
-    let html = to_html(ast);
+    // let html = to_html(ast);
 
-    fs::write("tests/test.html", html);
+    // fs::write("tests/test.html", html);
 }

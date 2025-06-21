@@ -1,4 +1,4 @@
-use markdown_parser::tokenize::*;
+use mdparser::lexer::*;
 
 #[test]
 fn test_to_tokens() {
@@ -98,7 +98,10 @@ fn test_to_tokens() {
                 content: String::from("foo ")
             },
             Token::Text {
-                content: String::from("** foo")
+                content: String::from("**")
+            },
+            Token::Text {
+                content: String::from(" foo")
             },
             Token::Block
         ],
@@ -121,6 +124,18 @@ fn test_to_tokens() {
     assert_eq!(
         vec![
             Token::Block,
+            Token::LeftRightAsterisk { count: 2 },
+            Token::Text {
+                content: String::from("foo bar")
+            },
+            Token::RightAsterisk { count: 2 },
+            Token::Block
+        ],
+        to_tokens(String::from("**foo bar**"))
+    );
+    assert_eq!(
+        vec![
+            Token::Block,
             Token::LeftRightAsterisk { count: 1 },
             Token::Text {
                 content: String::from("foo bar")
@@ -137,11 +152,28 @@ fn test_to_tokens() {
                 content: String::from("a ")
             },
             Token::Text {
-                content: String::from("* foo bar")
+                content: String::from("*")
+            },
+            Token::Text {
+                content: String::from(" foo bar")
             },
             Token::RightAsterisk { count: 1 },
             Token::Block
         ],
         to_tokens(String::from("a * foo bar*"))
+    );
+    assert_eq!(
+        vec![
+            Token::Block,
+            Token::Text {
+                content: String::from("*")
+            },
+            Token::Text {
+                content: String::from(" a ")
+            },
+            Token::LeftAsterisk { count: 1 },
+            Token::Block
+        ],
+        to_tokens(String::from("* a *"))
     );
 }

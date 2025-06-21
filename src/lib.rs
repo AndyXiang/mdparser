@@ -1,28 +1,6 @@
 #![allow(unused)]
 
-const PUNCTUATION: [char; 26] = [
-    ',', '.', '/', '<', '>', '?', ';', ':', '\'', '\"', '{', '}', '\\', '|', '!', '@', '#', '$',
-    '%', '^', '&', '(', ')', '-', '+', '=',
-];
-
-const ALPHABETIC: [char; 52] = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-    't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
-    'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
-];
-
-const NUMERIC: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-const ALPHANUMERIC: [char; 62] = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-    't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
-    'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4',
-    '5', '6', '7', '8', '9',
-];
-
-pub mod tokenize {
-    use std::process::Output;
-
+pub mod lexer {
     #[derive(Debug, PartialEq, Clone)]
     pub enum Token {
         ATXHeader { level: usize, content: String },
@@ -33,7 +11,6 @@ pub mod tokenize {
         LeftUnderscore { count: usize },
         RightUnderscore { count: usize },
         LeftRightUnderscore { count: usize },
-        ThematicBreak,
         Block,
     }
 
@@ -73,10 +50,14 @@ pub mod tokenize {
             }
         }
 
+        // step the tokenizer when the input char is #
         fn _match_numbersign(&mut self) -> Option<Token> {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
             match self.state {
+                // If the # appears on the beginning of a block
+                // then change tokenizer to ATXHeader state
+                // push the block token and create a new ATXHeader token
                 TokenizerState::Block => {
                     output_token = Some(current_token);
                     self.state = TokenizerState::ATXHeader;
@@ -85,6 +66,8 @@ pub mod tokenize {
                         content: String::new(),
                     };
                 }
+                // If the tokenizer is currently in ATXHeader state
+                // then add the header level
                 TokenizerState::ATXHeader => {
                     if let Token::ATXHeader { level, content } = current_token {
                         self.token = Token::ATXHeader {
@@ -93,6 +76,8 @@ pub mod tokenize {
                         };
                     }
                 }
+                // If the tokenizer is in Text state
+                // then the # will be counted in the text string
                 TokenizerState::Text => {
                     if let Token::Text { content } = current_token {
                         self.token = Token::Text {
@@ -100,6 +85,8 @@ pub mod tokenize {
                         };
                     }
                 }
+                // If the tokenizer is in ATXHeaderContent state
+                // then the # will be counted in the header content string
                 TokenizerState::ATXHeaderContent => {
                     if let Token::ATXHeader { level, content } = current_token {
                         self.token = Token::ATXHeader {
@@ -108,6 +95,8 @@ pub mod tokenize {
                         };
                     }
                 }
+                // If the tokenizer is in LazyContinuation state
+                // then the # will be considered as the continuation of string
                 TokenizerState::LazyContinuation => {
                     self.state = TokenizerState::ATXHeader;
                     if let Token::Text { mut content } = current_token {
@@ -119,6 +108,9 @@ pub mod tokenize {
                         content: String::new(),
                     };
                 }
+                // If the tokenizer is in CountAsterisk state
+                // then the # will be considered as a char and stop counting asterisk
+                // and push the asterisk token
                 TokenizerState::CountAsterisk => {
                     self.state = TokenizerState::Text;
                     output_token = Some(current_token);
@@ -126,6 +118,7 @@ pub mod tokenize {
                         content: String::from("#"),
                     };
                 }
+                // similar to asterisk situation
                 TokenizerState::CountUnderscore => {
                     self.state = TokenizerState::Text;
                     output_token = Some(current_token);
@@ -141,11 +134,16 @@ pub mod tokenize {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
             match self.state {
+                // the space on the head of a new line is ignored
                 TokenizerState::Block => (),
                 TokenizerState::LazyContinuation => (),
+                // A space behind a ATXHeader is considered as the stop of
+                // counting levels of the header.
+                // The following string is the content of the header.
                 TokenizerState::ATXHeader => {
                     self.state = TokenizerState::ATXHeaderContent;
                 }
+                // A space in Text state is a normal space char
                 TokenizerState::Text => {
                     if let Token::Text { mut content } = current_token {
                         self.token = Token::Text {
@@ -161,17 +159,25 @@ pub mod tokenize {
                         };
                     }
                 }
+                // Each delimiter can not be followed by space,
+                // then the asterisks or underscores ahead are considered as normal char
                 TokenizerState::CountAsterisk => {
                     self.state = TokenizerState::Text;
                     match current_token {
                         Token::RightAsterisk { count } => {
+                            output_token = Some(Token::Text {
+                                content: "*".repeat(count),
+                            });
                             self.token = Token::Text {
-                                content: "*".repeat(count) + " ",
+                                content: String::from(" "),
                             };
                         }
                         Token::LeftAsterisk { count } => {
+                            output_token = Some(Token::Text {
+                                content: "*".repeat(count),
+                            });
                             self.token = Token::Text {
-                                content: "*".repeat(count) + " ",
+                                content: String::from(" "),
                             };
                         }
                         _ => (),
@@ -181,18 +187,19 @@ pub mod tokenize {
                     self.state = TokenizerState::Text;
                     match current_token {
                         Token::RightUnderscore { count } => {
+                            output_token = Some(Token::Text {
+                                content: "_".repeat(count),
+                            });
                             self.token = Token::Text {
-                                content: "_".repeat(count) + " ",
+                                content: String::from(" "),
                             };
                         }
                         Token::LeftUnderscore { count } => {
-                            self.token = Token::Text {
-                                content: "_".repeat(count) + " ",
-                            };
-                        }
-                        Token::LeftRightUnderscore { count } => {
-                            self.token = Token::Text {
+                            output_token = Some(Token::Text {
                                 content: "_".repeat(count),
+                            });
+                            self.token = Token::Text {
+                                content: String::from(" "),
                             };
                         }
                         _ => (),
@@ -206,7 +213,10 @@ pub mod tokenize {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
             match self.state {
+                // multiple line breaks are ignored
                 TokenizerState::Block => (),
+                // single line break is ignored
+                // multiple line breaks ends the last block and start a new block.
                 TokenizerState::Text => {
                     self.state = TokenizerState::LazyContinuation;
                 }
@@ -215,16 +225,20 @@ pub mod tokenize {
                     self.token = Token::Block;
                     output_token = Some(current_token);
                 }
+                // single line break ends the ATXHeader.
                 TokenizerState::ATXHeaderContent => {
                     self.state = TokenizerState::Block;
                     self.token = Token::Block;
                     output_token = Some(current_token);
                 }
+                // header with no content is allowed
                 TokenizerState::ATXHeader => {
                     self.state = TokenizerState::Block;
                     self.token = Token::Block;
                     output_token = Some(current_token);
                 }
+                // asterisks and underscores end with line break are considered
+                // as normal string rather then key words
                 TokenizerState::CountAsterisk => {
                     self.state = TokenizerState::LazyContinuation;
                     match current_token {
@@ -234,11 +248,6 @@ pub mod tokenize {
                             };
                         }
                         Token::LeftAsterisk { count } => {
-                            self.token = Token::Text {
-                                content: "*".repeat(count),
-                            };
-                        }
-                        Token::LeftRightAsterisk { count } => {
                             self.token = Token::Text {
                                 content: "*".repeat(count),
                             };
@@ -259,11 +268,6 @@ pub mod tokenize {
                                 content: "_".repeat(count),
                             };
                         }
-                        Token::LeftRightUnderscore { count } => {
-                            self.token = Token::Text {
-                                content: "_".repeat(count),
-                            };
-                        }
                         _ => (),
                     }
                 }
@@ -271,10 +275,13 @@ pub mod tokenize {
             output_token
         }
 
+        // this function should be replace with a more specific function
+        // for unicode alphanumeric characters.
         fn _match_letter(&mut self, c: &char) -> Option<Token> {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
             match self.state {
+                // a char in Block state is the beginning of a paragraph
                 TokenizerState::Block => {
                     self.state = TokenizerState::Text;
                     self.token = Token::Text {
@@ -282,6 +289,8 @@ pub mod tokenize {
                     };
                     output_token = Some(current_token);
                 }
+                // a space between the #s and content is required
+                // thus the # followed with char is considered as normal char
                 TokenizerState::ATXHeader => {
                     self.state = TokenizerState::Text;
                     if let Token::ATXHeader { level, content } = current_token {
@@ -292,6 +301,7 @@ pub mod tokenize {
                         };
                     }
                 }
+                // char in ATXHeaderContent or Text state extends the string
                 TokenizerState::ATXHeaderContent => {
                     if let Token::ATXHeader { level, mut content } = current_token {
                         content.push(*c);
@@ -304,6 +314,7 @@ pub mod tokenize {
                         self.token = Token::Text { content };
                     }
                 }
+                // char in LazyContinuation state restarts the paragraph
                 TokenizerState::LazyContinuation => {
                     if let Token::Text { mut content } = current_token {
                         content.push(' ');
@@ -311,6 +322,8 @@ pub mod tokenize {
                         self.token = Token::Text { content };
                     }
                 }
+                // delimiters should ends with unicode characters
+                // more specific condition should be added
                 TokenizerState::CountAsterisk => {
                     self.state = TokenizerState::Text;
                     self.token = Token::Text {
@@ -349,6 +362,7 @@ pub mod tokenize {
             Some(self.token.clone())
         }
 
+        // more specific conditions are required
         fn _match_asterisk(&mut self) -> Option<Token> {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
@@ -414,6 +428,7 @@ pub mod tokenize {
             output_token
         }
 
+        // more specific conditions are required
         fn _match_underscore(&mut self) -> Option<Token> {
             let mut output_token: Option<Token> = None;
             let mut current_token = self.token.clone();
@@ -479,6 +494,7 @@ pub mod tokenize {
         }
     }
 
+    /// `to_tokens` transfers input string (read from file) to internal tokens
     pub fn to_tokens(markdown_text: String) -> Vec<Token> {
         let mut tokens: Vec<Token> = vec![];
         let mut tokenizer = Tokenizer::new();
@@ -512,135 +528,366 @@ pub mod tokenize {
 }
 
 pub mod ast {
-    use super::tokenize::Token;
+    use std::fmt;
+    use std::fmt::{Debug, Display, Formatter};
+    use std::{option::IntoIter, vec};
 
-    #[derive(Debug)]
+    use super::lexer::Token;
+
+    const ASTERISK: &str = "asterisk";
+    const UNDERSCORE: &str = "underscore";
+
+    #[derive(Debug, Clone, PartialEq)]
     pub enum Node {
-        Document {
-            children: Vec<Node>,
-        },
-        Block {
-            children: Vec<Node>,
-        },
-        Paragraph {
-            children: Vec<Node>,
-        },
-        Header {
-            level: usize,
-            children: Vec<Node>,
-        },
-        Text {
-            content: String,
-            children: Vec<Node>,
-        },
+        Document,
+        Block { children: Option<Vec<Node>> },
+        Text { content: String },
+        ATXHeader { level: usize, content: String },
+        Emphasis { content: String },
+        Strong { content: String },
+        ThematicBreak,
     }
 
-    pub fn to_ast(tokens: Vec<Token>) -> Node {
-        let mut document = Node::Document { children: vec![] };
-        let mut current_block = Node::Block { children: vec![] };
+    impl Display for Node {
+        fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+            self.fmt_with_indent(f, 0)
+        }
+    }
 
-        for token in tokens {
-            match token {
-                Token::Block => {
-                    if let Node::Document { mut children } = document {
-                        children.push(current_block);
-                        document = Node::Document { children };
-                        current_block = Node::Block { children: vec![] };
+    impl Node {
+        fn fmt_with_indent(&self, f: &mut fmt::Formatter<'_>, indent: usize) -> fmt::Result {
+            match self {
+                Node::Document => writeln!(f, "<document>")?,
+                Node::Block { children } => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<block>");
+                    if let Some(children) = children {
+                        for child in children {
+                            child.fmt_with_indent(f, indent + 1)?;
+                        }
                     }
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "</block>");
                 }
-                Token::Text { content } => {
-                    if let Node::Block { mut children } = current_block {
-                        children.push(Node::Paragraph {
-                            children: vec![Node::Text {
-                                content,
-                                children: vec![],
-                            }],
-                        });
-                        current_block = Node::Block { children };
-                    }
+                Node::ThematicBreak => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<thematic_break />")?;
                 }
-                Token::ATXHeader { level, content } => {
-                    if let Node::Block { mut children } = current_block {
-                        children.push(Node::Header {
-                            level,
-                            children: vec![Node::Text {
-                                content,
-                                children: vec![],
-                            }],
-                        });
-                        current_block = Node::Block { children };
-                    }
+                Node::Strong { content } => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<strong>")?;
+                    write!(f, "{:indent$}", "", indent = (indent + 1) * 2)?;
+                    writeln!(f, "<text>{content}</text>")?;
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "</strong>")?;
+                }
+                Node::Emphasis { content } => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<emph>")?;
+                    write!(f, "{:indent$}", "", indent = (indent + 1) * 2)?;
+                    writeln!(f, "<text>{content}</text>")?;
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "</emph>")?;
+                }
+                Node::Text { content } => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<text>{content}</text>")?;
+                }
+                Node::ATXHeader { level, content } => {
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "<heading level=\"{level}\">")?;
+                    write!(f, "{:indent$}", "", indent = (indent + 1) * 2)?;
+                    writeln!(f, "<text>{content}</text>")?;
+                    write!(f, "{:indent$}", "", indent = indent * 2)?;
+                    writeln!(f, "</heading>")?;
                 }
                 _ => (),
             }
+            Ok(())
+        }
+    }
+
+    pub struct ASTCreator {
+        ast: Vec<Node>,
+        current_block: Node,
+    }
+
+    impl fmt::Display for ASTCreator {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            for node in &self.ast {
+                node.fmt_with_indent(f, 0)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Default for ASTCreator {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl ASTCreator {
+        pub fn new() -> Self {
+            Self {
+                ast: vec![],
+                current_block: Node::Document,
+            }
         }
 
-        if let Node::Document { mut children } = document {
-            children.remove(0);
-            document = Node::Document { children };
-        } else {
-            document = Node::Document { children: vec![] };
-        };
-
-        document
-    }
-}
-
-pub mod html {
-    use super::ast::Node;
-
-    pub fn to_html(ast: Node) -> String {
-        let mut html = String::from(
-            "<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-\t<meta charset\"UTF-8\">
-\t<meta http-equiv=\"X-UA-Compatible\" content=\"IE-edge\">
-\t<meta name=\"viewprot\" content=\"width=device-width, initial-scale=1.0\">
-\t<title>Document</title>
-</head>
-<body>\n",
-        );
-
-        if let Node::Document { children: root } = ast {
-            for block in root {
-                if let Node::Block { children } = block {
-                    for node in children {
-                        match node {
-                            Node::Header {
-                                level,
-                                children: h_child,
-                            } => {
-                                for node in h_child {
-                                    if let Node::Text {
-                                        content,
-                                        children: _,
-                                    } = node
-                                    {
-                                        html += &format!("<h{level}>{content}</h{level}>\n");
-                                    }
-                                }
-                            }
-                            Node::Paragraph { children: p_child } => {
-                                for node in p_child {
-                                    if let Node::Text {
-                                        content,
-                                        children: _,
-                                    } = node
-                                    {
-                                        html += &format!("<p>{content}</p>\n");
-                                    }
-                                }
-                            }
-                            _ => (),
-                        }
-                    }
+        // call this function when encounter a Block Token
+        // push the current_node and create new block node
+        // if document is empty, do not push
+        fn _accept_block(&mut self) {
+            if let Node::Document = self.current_block {
+                self.current_block = Node::Block {
+                    children: Some(vec![]),
+                }
+            } else {
+                // FIXME using clone bad for performance
+                self.ast.push(self.current_block.clone());
+                self.current_block = Node::Block {
+                    children: Some(vec![]),
                 }
             }
         }
 
-        html += "\n</body>";
+        fn _accept_atxheader(&mut self, level: &usize, content: &str) {
+            if let Node::Block { ref mut children } = self.current_block {
+                let mut nodes = children.get_or_insert(vec![]);
+                nodes.push(Node::ATXHeader {
+                    level: *level,
+                    content: String::from(content),
+                });
+            }
+        }
 
-        html
+        fn _accept_text(&mut self, content: &str) {
+            if let Node::Block { ref mut children } = self.current_block {
+                let mut nodes = children.get_or_insert(vec![]);
+                nodes.push(Node::Text {
+                    content: String::from(content),
+                });
+            }
+            todo!();
+        }
+
+        fn _accept_emph(&mut self, from_which: &str, iter: &mut std::vec::IntoIter<Token>) {
+            let mut content = String::new();
+            let mut is_closed = false;
+            for token in iter.by_ref() {
+                match token {
+                    Token::Text {
+                        content: emph_content,
+                    } => {
+                        content += &emph_content;
+                    }
+                    Token::RightAsterisk { count: c } | Token::LeftRightAsterisk { count: c } => {
+                        if ASTERISK == from_which && c == 1 {
+                            is_closed = true;
+                        }
+                        break;
+                    }
+                    Token::RightUnderscore { count: c }
+                    | Token::LeftRightUnderscore { count: c } => {
+                        if UNDERSCORE == from_which && c == 1 {
+                            is_closed = true;
+                        }
+                        break;
+                    }
+                    Token::ATXHeader { .. }
+                    | Token::Block
+                    | Token::LeftAsterisk { .. }
+                    | Token::LeftUnderscore { .. } => break,
+                }
+            }
+            if let Node::Block { ref mut children } = self.current_block {
+                if is_closed {
+                    let mut nodes = children.get_or_insert(vec![]);
+                    nodes.push(Node::Emphasis { content });
+                } else {
+                    iter.next_back();
+                    let mut nodes = children.get_or_insert(vec![]);
+                    match from_which {
+                        ASTERISK => {
+                            nodes.push(Node::Text {
+                                content: String::from("*"),
+                            });
+                        }
+                        UNDERSCORE => {
+                            nodes.push(Node::Text {
+                                content: String::from("_"),
+                            });
+                        }
+                        _ => (),
+                    }
+                    nodes.push(Node::Text { content });
+                }
+            }
+        }
+
+        fn _accept_strong(&mut self, from_which: &str, iter: &mut std::vec::IntoIter<Token>) {
+            let mut content = String::new();
+            let mut is_closed = false;
+            for token in iter.by_ref() {
+                match token {
+                    Token::Text {
+                        content: emph_content,
+                    } => {
+                        content += &emph_content;
+                    }
+                    Token::RightAsterisk { count: c } | Token::LeftRightAsterisk { count: c } => {
+                        if ASTERISK == from_which && c == 2 {
+                            is_closed = true;
+                        }
+                        break;
+                    }
+                    Token::RightUnderscore { count: c }
+                    | Token::LeftRightUnderscore { count: c } => {
+                        if UNDERSCORE == from_which && c == 2 {
+                            is_closed = true;
+                        }
+                        break;
+                    }
+                    Token::ATXHeader { .. }
+                    | Token::Block
+                    | Token::LeftAsterisk { .. }
+                    | Token::LeftUnderscore { .. } => break,
+                }
+            }
+            if let Node::Block { ref mut children } = self.current_block {
+                if is_closed {
+                    let mut nodes = children.get_or_insert(vec![]);
+                    nodes.push(Node::Strong { content });
+                } else {
+                    iter.next_back();
+                    let mut nodes = children.get_or_insert(vec![]);
+                    match from_which {
+                        ASTERISK => {
+                            nodes.push(Node::Text {
+                                content: String::from("**"),
+                            });
+                        }
+                        UNDERSCORE => {
+                            nodes.push(Node::Text {
+                                content: String::from("__"),
+                            });
+                        }
+                        _ => (),
+                    }
+                    nodes.push(Node::Text { content });
+                }
+            }
+        }
+
+        fn _accept_thm(&self) {
+            todo!();
+        }
+    }
+
+    pub fn to_ast(tokens: Vec<Token>) -> Vec<Node> {
+        let mut current_node = Node::Block {
+            children: Some(vec![]),
+        };
+        let mut ast = ASTCreator::new();
+        let mut token_iter = tokens.into_iter();
+
+        while let Some(token) = token_iter.next() {
+            match token {
+                Token::Block => ast._accept_block(),
+                Token::Text { ref content } => ast._accept_text(content),
+                Token::ATXHeader {
+                    ref level,
+                    ref content,
+                } => ast._accept_atxheader(level, content),
+                Token::LeftRightAsterisk { count } | Token::LeftAsterisk { count } => match count {
+                    0 => (),
+                    1 => ast._accept_emph(ASTERISK, &mut token_iter),
+                    2 => ast._accept_strong(ASTERISK, &mut token_iter),
+                    3 => ast._accept_thm(),
+                    4_usize.. => ast._accept_text(&"*".repeat(count)),
+                },
+                Token::RightAsterisk { count } => match count {
+                    3 => ast._accept_thm(),
+                    4_usize.. => ast._accept_text(&"*".repeat(count)),
+                    _ => (),
+                },
+                Token::LeftRightUnderscore { count } | Token::LeftUnderscore { count } => {
+                    match count {
+                        0 => (),
+                        1 => ast._accept_emph(UNDERSCORE, &mut token_iter),
+                        2 => ast._accept_strong(UNDERSCORE, &mut token_iter),
+                        3 => ast._accept_thm(),
+                        4_usize.. => ast._accept_text(&"*".repeat(count)),
+                    }
+                }
+                Token::RightUnderscore { count } => match count {
+                    3 => ast._accept_thm(),
+                    4_usize.. => ast._accept_text(&"*".repeat(count)),
+                    _ => (),
+                },
+            }
+        }
+
+        ast.ast
     }
 }
+
+// pub mod html {
+//     use super::ast::Node;
+//
+//     pub fn to_html(ast: Node) -> String {
+//         let mut html = String::from(
+//             "<!DOCTYPE html>
+// <html lang=\"en\">
+// <head>
+// \t<meta charset\"UTF-8\">
+// \t<meta http-equiv=\"X-UA-Compatible\" content=\"IE-edge\">
+// \t<meta name=\"viewprot\" content=\"width=device-width, initial-scale=1.0\">
+// \t<title>Document</title>
+// </head>
+// <body>\n",
+//         );
+//
+//         if let Node::Document { children: root } = ast {
+//             for block in root {
+//                 if let Node::Block { children } = block {
+//                     for node in children {
+//                         match node {
+//                             Node::Header {
+//                                 level,
+//                                 children: h_child,
+//                             } => {
+//                                 for node in h_child {
+//                                     if let Node::Text {
+//                                         content,
+//                                         children: _,
+//                                     } = node
+//                                     {
+//                                         html += &format!("<h{level}>{content}</h{level}>\n");
+//                                     }
+//                                 }
+//                             }
+//                             Node::Paragraph { children: p_child } => {
+//                                 for node in p_child {
+//                                     if let Node::Text {
+//                                         content,
+//                                         children: _,
+//                                     } = node
+//                                     {
+//                                         html += &format!("<p>{content}</p>\n");
+//                                     }
+//                                 }
+//                             }
+//                             _ => (),
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//
+//         html += "\n</body>";
+//
+//         html
+//     }
+// }
