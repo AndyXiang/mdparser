@@ -1,179 +1,119 @@
+use indoc::indoc;
 use mdparser::lexer::*;
 
 #[test]
-fn test_to_tokens() {
+fn test_parse() {
+    assert_eq!(
+        vec![Token::Block, Token::LeftAsterisk { count: 3 }, Token::Block,],
+        parse(indoc! {"***"})
+    );
     assert_eq!(
         vec![
             Token::Block,
-            Token::ATXHeader {
-                level: 1,
-                content: String::from("H1")
+            Token::LeftUnderscore { count: 3 },
+            Token::Block,
+        ],
+        parse(indoc! {"___"})
+    );
+    assert_eq!(
+        vec![Token::Block, Token::LeftAsterisk { count: 2 }, Token::Block],
+        parse(indoc! {"**"})
+    );
+    assert_eq!(
+        vec![
+            Token::Block,
+            Token::LeftUnderscore { count: 2 },
+            Token::Block
+        ],
+        parse(indoc! {"__"})
+    );
+    assert_eq!(
+        vec![
+            Token::Block,
+            Token::LeftUnderscore { count: 5 },
+            Token::Block
+        ],
+        parse(indoc! {"_____"})
+    );
+    assert_eq!(
+        vec![
+            Token::Block,
+            Token::Text {
+                content: String::from("Foo ")
+            },
+            Token::LeftRightAsterisk { count: 3 },
+            Token::Text {
+                content: String::from("Bar")
             },
             Token::Block
         ],
-        to_tokens(String::from("# H1\n"))
+        parse(indoc! {"
+            Foo
+            ***
+            Bar
+        "})
     );
     assert_eq!(
         vec![
             Token::Block,
             Token::ATXHeader {
                 level: 1,
-                content: String::from("H1")
-            },
-            Token::Block,
-            Token::Text {
-                content: String::from("here is a text.")
-            },
-            Token::Block,
-        ],
-        to_tokens(String::from("# H1\n here is a text.\n"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
-            Token::ATXHeader {
-                level: 1,
-                content: String::from("H1")
-            },
-            Token::Block,
-            Token::Text {
-                content: String::from("here is a text.")
+                content: String::from("foo")
             },
             Token::Block,
             Token::ATXHeader {
                 level: 2,
-                content: String::from("H2")
+                content: String::from("foo")
             },
             Token::Block,
             Token::ATXHeader {
-                level: 2,
-                content: String::new(),
+                level: 3,
+                content: String::from("foo")
             },
             Token::Block,
-        ],
-        to_tokens(String::from("# H1\n\nhere is a text.\n\n## H2\n\n ##\n"))
-    );
-    assert_eq!(
-        vec![Token::Block, Token::LeftAsterisk { count: 1 }, Token::Block,],
-        to_tokens(String::from("*"))
-    );
-    assert_eq!(
-        vec![
+            Token::ATXHeader {
+                level: 4,
+                content: String::from("foo")
+            },
             Token::Block,
-            Token::LeftRightAsterisk { count: 1 },
-            Token::Text {
+            Token::ATXHeader {
+                level: 5,
                 content: String::from("foo")
             },
             Token::Block,
         ],
-        to_tokens(String::from("*foo"))
+        parse(indoc! {"
+            # foo
+            ## foo
+            ### foo
+            #### foo
+            ##### foo
+        "})
     );
     assert_eq!(
         vec![
             Token::Block,
-            Token::LeftRightAsterisk { count: 1 },
             Token::Text {
-                content: String::from("foo")
+                content: String::from("###### foo")
             },
-            Token::RightAsterisk { count: 1 },
-            Token::Block,
+            Token::Block
         ],
-        to_tokens(String::from("*foo*"))
+        parse(indoc! {"###### foo"})
     );
     assert_eq!(
         vec![
             Token::Block,
-            Token::Text {
+            Token::ATXHeader {
+                level: 1,
                 content: String::from("foo ")
             },
-            Token::LeftAsterisk { count: 2 },
-            Token::Block
-        ],
-        to_tokens(String::from("foo\n**"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
-            Token::Text {
-                content: String::from("foo ")
-            },
-            Token::Text {
-                content: String::from("**")
-            },
-            Token::Text {
-                content: String::from(" foo")
-            },
-            Token::Block
-        ],
-        to_tokens(String::from("foo ** foo"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
-            Token::Text {
-                content: String::from("foo")
-            },
-            Token::LeftRightAsterisk { count: 2 },
-            Token::Text {
-                content: String::from("foo")
-            },
-            Token::Block
-        ],
-        to_tokens(String::from("foo**foo"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
-            Token::LeftRightAsterisk { count: 2 },
-            Token::Text {
-                content: String::from("foo bar")
-            },
-            Token::RightAsterisk { count: 2 },
-            Token::Block
-        ],
-        to_tokens(String::from("**foo bar**"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
             Token::LeftRightAsterisk { count: 1 },
             Token::Text {
-                content: String::from("foo bar")
+                content: String::from("a")
             },
             Token::RightAsterisk { count: 1 },
-            Token::Block
-        ],
-        to_tokens(String::from("*foo bar*"))
-    );
-    assert_eq!(
-        vec![
             Token::Block,
-            Token::Text {
-                content: String::from("a ")
-            },
-            Token::Text {
-                content: String::from("*")
-            },
-            Token::Text {
-                content: String::from(" foo bar")
-            },
-            Token::RightAsterisk { count: 1 },
-            Token::Block
         ],
-        to_tokens(String::from("a * foo bar*"))
-    );
-    assert_eq!(
-        vec![
-            Token::Block,
-            Token::Text {
-                content: String::from("*")
-            },
-            Token::Text {
-                content: String::from(" a ")
-            },
-            Token::LeftAsterisk { count: 1 },
-            Token::Block
-        ],
-        to_tokens(String::from("* a *"))
-    );
+        parse(indoc! {"# foo *a*"})
+    )
 }

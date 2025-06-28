@@ -70,10 +70,17 @@ pub mod lexer {
                 // then add the header level
                 TokenizerState::ATXHeader => {
                     if let Token::ATXHeader { level, content } = current_token {
-                        self.token = Token::ATXHeader {
-                            level: level + 1,
-                            content,
-                        };
+                        if level <= 4 {
+                            self.token = Token::ATXHeader {
+                                level: level + 1,
+                                content,
+                            };
+                        } else {
+                            self.state = TokenizerState::Text;
+                            self.token = Token::Text {
+                                content: "#".repeat(level + 1),
+                            }
+                        }
                     }
                 }
                 // If the tokenizer is in Text state
@@ -239,38 +246,40 @@ pub mod lexer {
                 }
                 // asterisks and underscores end with line break are considered
                 // as normal string rather then key words
-                TokenizerState::CountAsterisk => {
-                    self.state = TokenizerState::LazyContinuation;
-                    match current_token {
-                        Token::RightAsterisk { count } => {
+                TokenizerState::CountAsterisk => match current_token {
+                    Token::RightAsterisk { count } => {
+                        self.state = TokenizerState::LazyContinuation;
+                        self.token = Token::Text {
+                            content: "*".repeat(count),
+                        };
+                    }
+                    Token::LeftAsterisk { count } => {
+                        if count < 3 {
+                            self.state = TokenizerState::LazyContinuation;
                             self.token = Token::Text {
                                 content: "*".repeat(count),
                             };
                         }
-                        Token::LeftAsterisk { count } => {
-                            self.token = Token::Text {
-                                content: "*".repeat(count),
-                            };
-                        }
-                        _ => (),
                     }
-                }
-                TokenizerState::CountUnderscore => {
-                    self.state = TokenizerState::LazyContinuation;
-                    match current_token {
-                        Token::RightUnderscore { count } => {
+                    _ => (),
+                },
+                TokenizerState::CountUnderscore => match current_token {
+                    Token::RightUnderscore { count } => {
+                        self.state = TokenizerState::LazyContinuation;
+                        self.token = Token::Text {
+                            content: "_".repeat(count),
+                        };
+                    }
+                    Token::LeftUnderscore { count } => {
+                        if count < 3 {
+                            self.state = TokenizerState::LazyContinuation;
                             self.token = Token::Text {
                                 content: "_".repeat(count),
                             };
                         }
-                        Token::LeftUnderscore { count } => {
-                            self.token = Token::Text {
-                                content: "_".repeat(count),
-                            };
-                        }
-                        _ => (),
                     }
-                }
+                    _ => (),
+                },
             }
             output_token
         }
@@ -494,8 +503,8 @@ pub mod lexer {
         }
     }
 
-    /// `to_tokens` transfers input string (read from file) to internal tokens
-    pub fn to_tokens(markdown_text: String) -> Vec<Token> {
+    /// `parse` transfers input string (read from file) to internal tokens
+    pub fn parse(markdown_text: &str) -> Vec<Token> {
         let mut tokens: Vec<Token> = vec![];
         let mut tokenizer = Tokenizer::new();
 
@@ -669,7 +678,6 @@ pub mod ast {
                     content: String::from(content),
                 });
             }
-            todo!();
         }
 
         fn _accept_emph(&mut self, from_which: &str, iter: &mut std::vec::IntoIter<Token>) {
@@ -833,61 +841,62 @@ pub mod ast {
     }
 }
 
-// pub mod html {
-//     use super::ast::Node;
-//
-//     pub fn to_html(ast: Node) -> String {
-//         let mut html = String::from(
-//             "<!DOCTYPE html>
-// <html lang=\"en\">
-// <head>
-// \t<meta charset\"UTF-8\">
-// \t<meta http-equiv=\"X-UA-Compatible\" content=\"IE-edge\">
-// \t<meta name=\"viewprot\" content=\"width=device-width, initial-scale=1.0\">
-// \t<title>Document</title>
-// </head>
-// <body>\n",
-//         );
-//
-//         if let Node::Document { children: root } = ast {
-//             for block in root {
-//                 if let Node::Block { children } = block {
-//                     for node in children {
-//                         match node {
-//                             Node::Header {
-//                                 level,
-//                                 children: h_child,
-//                             } => {
-//                                 for node in h_child {
-//                                     if let Node::Text {
-//                                         content,
-//                                         children: _,
-//                                     } = node
-//                                     {
-//                                         html += &format!("<h{level}>{content}</h{level}>\n");
-//                                     }
-//                                 }
-//                             }
-//                             Node::Paragraph { children: p_child } => {
-//                                 for node in p_child {
-//                                     if let Node::Text {
-//                                         content,
-//                                         children: _,
-//                                     } = node
-//                                     {
-//                                         html += &format!("<p>{content}</p>\n");
-//                                     }
-//                                 }
-//                             }
-//                             _ => (),
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//
-//         html += "\n</body>";
-//
-//         html
-//     }
-// }
+pub mod html {
+    use super::ast::Node;
+    use indoc::indoc;
+
+    pub fn to_html(ast: Vec<Node>) -> String {
+        let mut html = String::from(indoc! {"
+            <!DOCTYPE html>
+            <html lang=\"en\">
+            <head>
+                <meta charset\"UTF-8\">
+                <meta name=\"viewprot\" content=\"width=device-width, initial-scale=1.0\">
+                <title>Document</title>
+            </head>
+            <body>\n
+        "});
+
+        for block in ast {
+            if let Node::Block {
+                children: Some(children),
+            } = block
+            {
+                for child in &children {
+                    match child {
+                        Node::ATXHeader { level, content } => {
+                            html += _visit_atxheader(level, content).as_str()
+                        }
+                        Node::ThematicBreak => html += _visit_thm().as_str(),
+                        Node::Strong { content } => html += _visit_strong(content).as_str(),
+                        Node::Text { content } => html += _visit_text(content).as_str(),
+                        Node::Emphasis { content } => html += _visit_emph(content).as_str(),
+                        _ => (),
+                    };
+                }
+            }
+        }
+        html += "\n</body>";
+        html
+    }
+
+    fn _visit_atxheader(level: &usize, content: &str) -> String {
+        format!("<h{}>{}</h{}>\n", level, content, level)
+    }
+
+    fn _visit_thm() -> String {
+        String::from("<hr />")
+    }
+
+    fn _visit_emph(content: &str) -> String {
+        format!("<em>{}</em>", content)
+    }
+
+    fn _visit_strong(content: &str) -> String {
+        format!("<strong>{}</strong>", content)
+    }
+
+    fn _visit_text(content: &str) -> String {
+        String::from(content)
+    }
+}

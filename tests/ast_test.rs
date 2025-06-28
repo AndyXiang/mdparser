@@ -9,7 +9,7 @@ fn test_to_ast() {
                 content: String::from("foo bar")
             }])
         }],
-        to_ast(to_tokens(String::from("*foo bar*")))
+        to_ast(parse("foo bar"))
     );
     assert_eq!(
         vec![Node::Block {
@@ -17,6 +17,6 @@ fn test_to_ast() {
                 content: String::from("foo bar")
             }])
         }],
-        to_ast(to_tokens(String::from("**foo bar**")))
+        to_ast(parse("foo bar"))
     );
 }
